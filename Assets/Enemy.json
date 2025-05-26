@@ -1,0 +1,25 @@
+{
+    "RowCount": 1,
+    "ColumnCount": 4,
+    "FrameWidth": 32,
+    "FrameHeight": 32,
+    "FrameCenter": {
+        "OffsetX": 16,
+        "OffsetY": 16
+    },
+    "FileName": "enemy_slime.png",
+    "Animations": {
+        "Idle": {
+            "StartFrame": { "Row": 0, "Col": 0 },
+            "EndFrame":   { "Row": 0, "Col": 0 },
+            "DurationMs": 1000,
+            "Loop": true
+        },
+        "Walk": {
+            "StartFrame": { "Row": 0, "Col": 0 },
+            "EndFrame":   { "Row": 0, "Col": 3 },
+            "DurationMs": 600,
+            "Loop": true
+        }
+    }
+}

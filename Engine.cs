@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Text.Json;
+using System;
 using Silk.NET.Maths;
 using TheAdventure.Models;
 using TheAdventure.Models.Data;
@@ -27,6 +28,18 @@ public class Engine
 
     private int _youDiedTextureId;
 
+    
+    private readonly Random _random = new();
+    private double _enemySpawnAccumulator = 0;
+    private const double EnemySpawnInterval = 5000;
+    private const int EnemySpawnRadius = 300;
+
+    private double _healthSpawnAccumulator = 0;
+    private const double HealthSpawnInterval = 8000;
+    private const int MaxHealthPickups = 5;
+
+    private SpriteSheet? _enemySheet;
+
 
     public Engine(GameRenderer renderer, Input input)
     {
@@ -39,6 +52,7 @@ public class Engine
     public void SetupWorld()
     {
         _player = new(SpriteSheet.Load(_renderer, "Player.json", "Assets"), 100, 100);
+        _enemySheet = SpriteSheet.Load(_renderer, "Enemy.json", "Assets");
 
         var levelContent = File.ReadAllText(Path.Combine("Assets", "terrain.tmj"));
         var level = JsonSerializer.Deserialize<Level>(levelContent);
@@ -118,15 +132,48 @@ public class Engine
 
         var worldBounds = new Rectangle<int>(0, 0, worldWidth * tileWidth, worldHeight * tileHeight);
 
-
         _player.UpdatePosition(up, down, left, right, 48, 48, msSinceLastFrame, worldBounds);
-
 
         if (isAttacking)
         {
             _player.Attack();
         }
-        
+
+        // Handle enemy spawning
+        _enemySpawnAccumulator += msSinceLastFrame;
+        if (_enemySpawnAccumulator >= EnemySpawnInterval)
+        {
+            _enemySpawnAccumulator -= EnemySpawnInterval;
+            SpawnEnemyAroundPlayer();
+        }
+
+        _healthSpawnAccumulator += msSinceLastFrame;
+        if (_healthSpawnAccumulator >= HealthSpawnInterval)
+        {
+            _healthSpawnAccumulator -= HealthSpawnInterval;
+            SpawnHealthPickup();
+        }
+
+        // Update all enemies
+        foreach (var obj in _gameObjects.Values)
+        {
+            if (obj is Enemy enemy)
+            {
+                enemy.Update(this, msSinceLastFrame);
+            }
+        }
+
+        // Remove enemies that dealt damage
+        var enemiesToRemove = _gameObjects
+            .Where(pair => pair.Value is Enemy e && e.ShouldBeRemoved)
+            .Select(pair => pair.Key)
+            .ToList();
+
+        foreach (var id in enemiesToRemove)
+        {
+            _gameObjects.Remove(id);
+        }
+
         _scriptEngine.ExecuteAll(this);
 
         if (addBomb && _player.State.State != PlayerObject.PlayerState.GameOver)
@@ -134,6 +181,7 @@ public class Engine
             AddBomb(_player.Position.X, _player.Position.Y, false);
         }
     }
+
 
     public void RenderFrame()
     {
@@ -172,36 +220,92 @@ public class Engine
 
     public void RenderAllObjects()
     {
-        var toRemove = new List<int>();
+        var tempToRemove = new List<int>();
+        var pickupsToRemove = new List<int>();
+
         foreach (var gameObject in GetRenderables())
         {
             gameObject.Render(_renderer);
+
             if (gameObject is TemporaryGameObject { IsExpired: true } tempGameObject)
             {
-                toRemove.Add(tempGameObject.Id);
+                tempToRemove.Add(tempGameObject.Id);
+            }
+            else if (gameObject is HealthPickup healthPickup && _player != null)
+            {
+                int deltaX = Math.Abs(_player.Position.X - healthPickup.Position.X);
+                int deltaY = Math.Abs(_player.Position.Y - healthPickup.Position.Y);
+
+                if (deltaX < 32 && deltaY < 32 && _player.Health < 3)
+                {
+                    _player.Heal(1);
+                    pickupsToRemove.Add(healthPickup.Id);
+                }
             }
         }
 
-        foreach (var id in toRemove)
+        foreach (var id in tempToRemove)
         {
             _gameObjects.Remove(id, out var gameObject);
 
-            if (_player == null)
+            if (gameObject is TemporaryGameObject temp && _player != null)
             {
-                continue;
-            }
-
-            var tempGameObject = (TemporaryGameObject)gameObject!;
-            var deltaX = Math.Abs(_player.Position.X - tempGameObject.Position.X);
-            var deltaY = Math.Abs(_player.Position.Y - tempGameObject.Position.Y);
-            if (deltaX < 32 && deltaY < 32)
-            {
-                _player.LoseHealth();
-                _player.KnockbackFrom(tempGameObject.Position);
+                var deltaX = Math.Abs(_player.Position.X - temp.Position.X);
+                var deltaY = Math.Abs(_player.Position.Y - temp.Position.Y);
+                if (deltaX < 32 && deltaY < 32)
+                {
+                    _player.LoseHealth();
+                    _player.KnockbackFrom(temp.Position);
+                }
             }
         }
 
+        foreach (var id in pickupsToRemove)
+        {
+            _gameObjects.Remove(id);
+        }
+
         _player?.Render(_renderer);
+    }
+
+
+    private void SpawnEnemyAroundPlayer()
+    {
+        var (playerX, playerY) = _player!.Position;
+
+        var angle = _random.NextDouble() * Math.PI * 2;
+        var distance = _random.NextDouble() * EnemySpawnRadius;
+
+        var offsetX = (int)(Math.Cos(angle) * distance);
+        var offsetY = (int)(Math.Sin(angle) * distance);
+        var spawnX = playerX + offsetX;
+        var spawnY = playerY + offsetY;
+
+        var enemy = new Enemy(_enemySheet!, (spawnX, spawnY));
+        _gameObjects.Add(enemy.Id, enemy);
+    }
+
+    private void SpawnHealthPickup()
+    {
+        if (_player == null) return;
+
+        int activeHealthCount = _gameObjects.Values.Count(o => o is HealthPickup);
+        if (activeHealthCount >= MaxHealthPickups)
+            return;
+
+        var (playerX, playerY) = _player.Position;
+
+        var angle = _random.NextDouble() * Math.PI * 2;
+        var distance = _random.Next(100, 300);
+
+        var offsetX = (int)(Math.Cos(angle) * distance);
+        var offsetY = (int)(Math.Sin(angle) * distance);
+
+        var spawnX = playerX + offsetX;
+        var spawnY = playerY + offsetY;
+
+        var pickup = new HealthPickup(_heartFullId, (spawnX, spawnY));
+        _gameObjects.Add(pickup.Id, pickup);
     }
 
     public void RenderTerrain()
@@ -271,6 +375,15 @@ public class Engine
         return _player!.Position;
     }
 
+    public void DamagePlayerFrom((int X, int Y) enemyPosition)
+    {
+        if (_player == null || _player.State.State == PlayerObject.PlayerState.GameOver)
+            return;
+
+        _player.LoseHealth();
+        _player.KnockbackFrom(enemyPosition);
+    }
+ 
     public void AddBomb(int X, int Y, bool translateCoordinates = true)
     {
         var worldCoords = translateCoordinates ? _renderer.ToWorldCoordinates(X, Y) : new Vector2D<int>(X, Y);

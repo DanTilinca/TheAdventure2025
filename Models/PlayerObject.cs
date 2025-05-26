@@ -21,6 +21,13 @@ public class PlayerObject : RenderableGameObject
         }
     }
 
+    public void Heal(int amount)
+    {
+        if (State.State == PlayerState.GameOver)
+            return;
+
+        Health = Math.Min(3, Health + amount);
+    }
 
     public enum PlayerStateDirection
     {
