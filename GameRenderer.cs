@@ -17,14 +17,18 @@ public unsafe class GameRenderer
     private Dictionary<int, IntPtr> _texturePointers = new();
     private Dictionary<int, TextureData> _textureData = new();
     private int _textureId;
+    
+    public int ScreenWidth => _window.Size.Width;
+    public int ScreenHeight => _window.Size.Height;
+
 
     public GameRenderer(Sdl sdl, GameWindow window)
     {
         _sdl = sdl;
-        
+
         _renderer = (Renderer*)window.CreateRenderer();
         _sdl.SetRenderDrawBlendMode(_renderer, BlendMode.Blend);
-        
+
         _window = window;
         var windowSize = window.Size;
         _camera = new Camera(windowSize.Width, windowSize.Height);
@@ -90,6 +94,16 @@ public unsafe class GameRenderer
                 in center, flip);
         }
     }
+
+    public void RenderUITexture(int textureId, Rectangle<int> src, Rectangle<int> dst,
+        RendererFlip flip = RendererFlip.None, double angle = 0.0, Point center = default)
+    {
+        if (_texturePointers.TryGetValue(textureId, out var imageTexture))
+        {
+            _sdl.RenderCopyEx(_renderer, (Texture*)imageTexture, in src, in dst, angle, in center, flip);
+        }
+    }
+
 
     public Vector2D<int> ToWorldCoordinates(int x, int y)
     {

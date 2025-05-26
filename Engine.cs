@@ -22,6 +22,12 @@ public class Engine
 
     private DateTimeOffset _lastUpdate = DateTimeOffset.Now;
 
+    private int _heartFullId;
+    private int _heartEmptyId;
+
+    private int _youDiedTextureId;
+
+
     public Engine(GameRenderer renderer, Input input)
     {
         _renderer = renderer;
@@ -69,6 +75,11 @@ public class Engine
             throw new Exception("Invalid tile dimensions");
         }
 
+        _heartFullId = _renderer.LoadTexture(Path.Combine("Assets", "heart_full.png"), out _);
+        _heartEmptyId = _renderer.LoadTexture(Path.Combine("Assets", "heart_empty.png"), out _);
+
+        _youDiedTextureId = _renderer.LoadTexture(Path.Combine("Assets", "you_died.png"), out _);
+
         _renderer.SetWorldBounds(new Rectangle<int>(0, 0, level.Width.Value * level.TileWidth.Value,
             level.Height.Value * level.TileHeight.Value));
 
@@ -88,6 +99,11 @@ public class Engine
             return;
         }
 
+        if (_player.State.State == PlayerObject.PlayerState.GameOver)
+        {
+            return;
+        }
+
         double up = _input.IsUpPressed() ? 1.0 : 0.0;
         double down = _input.IsDownPressed() ? 1.0 : 0.0;
         double left = _input.IsLeftPressed() ? 1.0 : 0.0;
@@ -95,7 +111,17 @@ public class Engine
         bool isAttacking = _input.IsKeyAPressed() && (up + down + left + right <= 1);
         bool addBomb = _input.IsKeyBPressed();
 
-        _player.UpdatePosition(up, down, left, right, 48, 48, msSinceLastFrame);
+        var worldWidth = _currentLevel.Width ?? throw new Exception("Level width is null");
+        var worldHeight = _currentLevel.Height ?? throw new Exception("Level height is null");
+        var tileWidth = _currentLevel.TileWidth ?? throw new Exception("Tile width is null");
+        var tileHeight = _currentLevel.TileHeight ?? throw new Exception("Tile height is null");
+
+        var worldBounds = new Rectangle<int>(0, 0, worldWidth * tileWidth, worldHeight * tileHeight);
+
+
+        _player.UpdatePosition(up, down, left, right, 48, 48, msSinceLastFrame, worldBounds);
+
+
         if (isAttacking)
         {
             _player.Attack();
@@ -103,7 +129,7 @@ public class Engine
         
         _scriptEngine.ExecuteAll(this);
 
-        if (addBomb)
+        if (addBomb && _player.State.State != PlayerObject.PlayerState.GameOver)
         {
             AddBomb(_player.Position.X, _player.Position.Y, false);
         }
@@ -119,8 +145,29 @@ public class Engine
 
         RenderTerrain();
         RenderAllObjects();
+        RenderPlayerHealth();
+
+        if (_player != null && _player.State.State == PlayerObject.PlayerState.GameOver)
+        {
+            RenderGameOverOverlay();
+        }
 
         _renderer.PresentFrame();
+    }
+
+    private void RenderPlayerHealth()
+    {
+        if (_player == null)
+            return;
+
+        int padding = 10;
+        int spacing = 48;
+        for (int i = 0; i < 3; i++)
+        {
+            var textureId = i < _player.Health ? _heartFullId : _heartEmptyId;
+            var dstRect = new Rectangle<int>(padding + i * spacing, padding, 32, 32);
+            _renderer.RenderUITexture(textureId, new Rectangle<int>(0, 0, 32, 32), dstRect);
+        }
     }
 
     public void RenderAllObjects()
@@ -149,7 +196,8 @@ public class Engine
             var deltaY = Math.Abs(_player.Position.Y - tempGameObject.Position.Y);
             if (deltaX < 32 && deltaY < 32)
             {
-                _player.GameOver();
+                _player.LoseHealth();
+                _player.KnockbackFrom(tempGameObject.Position);
             }
         }
 
@@ -188,6 +236,24 @@ public class Engine
             }
         }
     }
+
+    private void RenderGameOverOverlay()
+    {
+        var screenWidth = _renderer.ScreenWidth;
+        var screenHeight = _renderer.ScreenHeight;
+
+        int overlayWidth = 256;
+        int overlayHeight = 64;
+
+        var dstRect = new Rectangle<int>(
+            (screenWidth - overlayWidth) / 2,
+            (screenHeight - overlayHeight) / 2,
+            overlayWidth, overlayHeight
+        );
+
+        _renderer.RenderUITexture(_youDiedTextureId, new Rectangle<int>(0, 0, overlayWidth, overlayHeight), dstRect);
+    }
+
 
     public IEnumerable<RenderableGameObject> GetRenderables()
     {

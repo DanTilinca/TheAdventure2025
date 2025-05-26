@@ -6,6 +6,22 @@ public class PlayerObject : RenderableGameObject
 {
     private const int _speed = 128; // pixels per second
 
+    public int Health { get; private set; } = 3;
+
+    public void LoseHealth()
+    {
+        if (State.State == PlayerState.GameOver)
+            return;
+
+        Health--;
+
+        if (Health <= 0)
+        {
+            GameOver();
+        }
+    }
+
+
     public enum PlayerStateDirection
     {
         None = 0,
@@ -82,7 +98,7 @@ public class PlayerObject : RenderableGameObject
         SetState(PlayerState.Attack, direction);
     }
 
-    public void UpdatePosition(double up, double down, double left, double right, int width, int height, double time)
+    public void UpdatePosition(double up, double down, double left, double right, int width, int height, double time, Rectangle<int> worldBounds)
     {
         if (State.State == PlayerState.GameOver)
         {
@@ -91,23 +107,21 @@ public class PlayerObject : RenderableGameObject
 
         var pixelsToMove = _speed * (time / 1000.0);
 
-        var x = Position.X + (int)(right * pixelsToMove);
-        x -= (int)(left * pixelsToMove);
+        int newX = Position.X + (int)(right * pixelsToMove) - (int)(left * pixelsToMove);
+        int newY = Position.Y + (int)(down * pixelsToMove) - (int)(up * pixelsToMove);
 
-        var y = Position.Y + (int)(down * pixelsToMove);
-        y -= (int)(up * pixelsToMove);
+        // Clamp to bounds
+        newX = Math.Clamp(newX, worldBounds.Origin.X, worldBounds.Origin.X + worldBounds.Size.X - 1);
+        newY = Math.Clamp(newY, worldBounds.Origin.Y, worldBounds.Origin.Y + worldBounds.Size.Y - 1);
 
         var newState = State.State;
         var newDirection = State.Direction;
 
-        if (x == Position.X && y == Position.Y)
+        if (newX == Position.X && newY == Position.Y)
         {
-            if (State.State == PlayerState.Attack)
+            if (State.State == PlayerState.Attack && SpriteSheet.AnimationFinished)
             {
-                if (SpriteSheet.AnimationFinished)
-                {
-                    newState = PlayerState.Idle;
-                }
+                newState = PlayerState.Idle;
             }
             else
             {
@@ -117,26 +131,11 @@ public class PlayerObject : RenderableGameObject
         else
         {
             newState = PlayerState.Move;
-            
-            if (y < Position.Y && newDirection != PlayerStateDirection.Up)
-            {
-                newDirection = PlayerStateDirection.Up;
-            }
 
-            if (y > Position.Y && newDirection != PlayerStateDirection.Down)
-            {
-                newDirection = PlayerStateDirection.Down;
-            }
-
-            if (x < Position.X && newDirection != PlayerStateDirection.Left)
-            {
-                newDirection = PlayerStateDirection.Left;
-            }
-
-            if (x > Position.X && newDirection != PlayerStateDirection.Right)
-            {
-                newDirection = PlayerStateDirection.Right;
-            }
+            if (newY < Position.Y) newDirection = PlayerStateDirection.Up;
+            if (newY > Position.Y) newDirection = PlayerStateDirection.Down;
+            if (newX < Position.X) newDirection = PlayerStateDirection.Left;
+            if (newX > Position.X) newDirection = PlayerStateDirection.Right;
         }
 
         if (newState != State.State || newDirection != State.Direction)
@@ -144,6 +143,24 @@ public class PlayerObject : RenderableGameObject
             SetState(newState, newDirection);
         }
 
-        Position = (x, y);
+        Position = (newX, newY);
+    }
+
+    public void KnockbackFrom((int X, int Y) source)
+    {
+        const int knockbackDistance = 16;
+
+        int dx = Position.X - source.X;
+        int dy = Position.Y - source.Y;
+
+        // Normalize direction
+        int xDirection = Math.Sign(dx);
+        int yDirection = Math.Sign(dy);
+
+        // Apply knockback
+        int newX = Position.X + xDirection * knockbackDistance;
+        int newY = Position.Y + yDirection * knockbackDistance;
+
+        Position = (newX, newY);
     }
 }
